@@ -484,6 +484,13 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
     /// </summary>
     private void ApplyWindowBackgroundColor()
     {
+        // On iOS, keep the system dim/blur provided by UISheetPresentationController.
+        if (OperatingSystem.IsIOS()
+            && !OperatingSystem.IsMacCatalyst())
+        {
+            return;
+        }
+
         // ReSharper disable once ConditionalAccessQualifierIsNonNullableAccordingToAPIContract
         if (PresentationController?.ContainerView?.Subviews.Length > 0)
         {
