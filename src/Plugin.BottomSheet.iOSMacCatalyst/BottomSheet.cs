@@ -11,7 +11,6 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
     private const string AccessibilityIdentifier = "Plugin.BottomSheet.iOSMacCatalyst.BottomSheet";
     private const string PeekDetentId = "Plugin.Maui.BottomSheet.PeekDetentId";
     private const double IosBlurAnimationDuration = 0.35d;
-    private const float IosBlurVisibleAlpha = 0.55f;
 
     private readonly WeakEventManager _eventManager = new();
     private readonly UISheetPresentationControllerDetent _contentDetent;
@@ -29,6 +28,7 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
 
     private BottomSheetContainerViewController? _containerViewController;
     private UIVisualEffectView? _iosBlurBackgroundView;
+    private UIViewPropertyAnimator? _iosBlurAnimator;
 
     private BottomSheetSizeMode _sizeMode;
 
@@ -348,7 +348,7 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
         if (OperatingSystem.IsIOS()
             && !OperatingSystem.IsMacCatalyst())
         {
-            AnimateIosBlurAlpha(0f);
+            AnimateIosBlurEffect(false);
             return;
         }
 
@@ -468,6 +468,8 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
         _bottomSheetDelegate.Dispose();
 
         _dimViewGestureRecognizer.Dispose();
+        _iosBlurAnimator?.StopAnimation(true);
+        _iosBlurAnimator?.Dispose();
         _iosBlurBackgroundView?.RemoveFromSuperview();
         _iosBlurBackgroundView?.Dispose();
 
@@ -509,7 +511,7 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
             {
                 dimmingView.BackgroundColor = UIColor.Clear;
                 EnsureIosBlurBackgroundView(dimmingView);
-                AnimateIosBlurAlpha(IsModal ? (nfloat)IosBlurVisibleAlpha : 0f);
+                AnimateIosBlurEffect(IsModal);
             }
 
             return;
@@ -526,36 +528,42 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
     {
         if (_iosBlurBackgroundView is null)
         {
-            UIBlurEffect blurEffect = UIBlurEffect.FromStyle(UIBlurEffectStyle.SystemThinMaterialDark);
-            _iosBlurBackgroundView = new UIVisualEffectView(blurEffect)
+            _iosBlurBackgroundView = new UIVisualEffectView
             {
                 UserInteractionEnabled = false,
-                Alpha = 0f,
+                Effect = null,
             };
         }
 
         if (!ReferenceEquals(_iosBlurBackgroundView.Superview, dimmingView))
         {
             _iosBlurBackgroundView.RemoveFromSuperview();
-            dimmingView.InsertSubview(_iosBlurBackgroundView, 0);
+            dimmingView.AddSubview(_iosBlurBackgroundView);
         }
 
+        dimmingView.BringSubviewToFront(_iosBlurBackgroundView);
         _iosBlurBackgroundView.Frame = dimmingView.Bounds;
     }
 
-    private void AnimateIosBlurAlpha(nfloat alpha)
+    private void AnimateIosBlurEffect(bool isVisible)
     {
         if (_iosBlurBackgroundView is null)
         {
             return;
         }
 
-        UIView.Animate(
+        _iosBlurAnimator?.StopAnimation(true);
+        _iosBlurAnimator?.Dispose();
+
+        UIVisualEffect? targetEffect = isVisible
+            ? UIBlurEffect.FromStyle(UIBlurEffectStyle.SystemUltraThinMaterial)
+            : null;
+
+        _iosBlurAnimator = new UIViewPropertyAnimator(
             IosBlurAnimationDuration,
-            0d,
-            UIViewAnimationOptions.BeginFromCurrentState | UIViewAnimationOptions.AllowUserInteraction | UIViewAnimationOptions.CurveEaseInOut,
-            () => _iosBlurBackgroundView.Alpha = alpha,
-            () => { });
+            UIViewAnimationCurve.EaseInOut,
+            () => _iosBlurBackgroundView.Effect = targetEffect);
+        _iosBlurAnimator.StartAnimation();
     }
 
     /// <summary>
