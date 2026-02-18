@@ -28,18 +28,10 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
 
     private BottomSheetContainerViewController? _containerViewController;
     private UIVisualEffectView? _iosBlurBackgroundView;
+    private UIView? _iosLeafTouchBlockerView;
     private UIViewPropertyAnimator? _iosBlurAnimator;
 
     private BottomSheetSizeMode _sizeMode;
-
-    private static void SetLargestUndimmedDetentIdentifier(
-        UISheetPresentationController sheetPresentationController,
-        string detentIdentifier)
-    {
-        using NSString largestUndimmedDetentIdentifier = new(detentIdentifier);
-        using NSString largestUndimmedDetentIdentifierKey = new("largestUndimmedDetentIdentifier");
-        sheetPresentationController.SetValueForKey(largestUndimmedDetentIdentifier, largestUndimmedDetentIdentifierKey);
-    }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="BottomSheet"/> class.
@@ -332,6 +324,19 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
         ApplyBackgroundColor();
         ApplyWindowBackgroundColor();
 
+        bool isLeafSheet = IsLeafSheet();
+        if (isLeafSheet
+            && IsModal)
+        {
+            // Leaf sheets use undimmed detent on iOS, so we add our own transparent touch blocker
+            // to prevent click-through while keeping the custom blur-only visual.
+            EnsureIosLeafTouchBlockerView();
+        }
+        else
+        {
+            RemoveIosLeafTouchBlockerView();
+        }
+
         if (GetBackdropView() is UIView view
             && view.GestureRecognizers is UIGestureRecognizer[] gestureRecognizers)
         {
@@ -339,8 +344,15 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
             {
                 defaultGestureRecognizer.Enabled = false;
             }
+        }
 
-            view.AddGestureRecognizer(_dimViewGestureRecognizer);
+        if (_iosLeafTouchBlockerView is UIView touchBlockerView)
+        {
+            AttachDimTapGestureRecognizer(touchBlockerView);
+        }
+        else if (GetBackdropView() is UIView backdropView)
+        {
+            AttachDimTapGestureRecognizer(backdropView);
         }
     }
 
@@ -351,6 +363,7 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
     public override void ViewWillDisappear(bool animated)
     {
         base.ViewWillDisappear(animated);
+        RemoveIosLeafTouchBlockerView();
 
         if (OperatingSystem.IsIOS()
             && !OperatingSystem.IsMacCatalyst())
@@ -395,6 +408,11 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
         if (_iosBlurBackgroundView?.Superview is UIView dimmingView)
         {
             _iosBlurBackgroundView.Frame = dimmingView.Bounds;
+        }
+
+        if (_iosLeafTouchBlockerView?.Superview is UIView containerView)
+        {
+            _iosLeafTouchBlockerView.Frame = containerView.Bounds;
         }
     }
 
@@ -474,6 +492,8 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
         _bottomSheetDelegate.ConfirmDismiss -= BottomSheetDelegateOnConfirmDismiss;
         _bottomSheetDelegate.Dispose();
 
+        RemoveIosLeafTouchBlockerView();
+        _iosLeafTouchBlockerView?.Dispose();
         _dimViewGestureRecognizer.Dispose();
         StopAndDisposeIosBlurAnimator(finishCurrent: true);
         _iosBlurBackgroundView?.RemoveFromSuperview();
@@ -502,6 +522,17 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
         }
 
         SheetPresentationController.PrefersEdgeAttachedInCompactHeight = true;
+    }
+
+    private void SetLargestUndimmedDetentIdentifier(
+        UISheetPresentationController sheetPresentationController,
+        string detentIdentifier)
+    {
+        // .NET binding exposes LargestUndimmedDetentIdentifier as enum (Unknown/Medium/Large),
+        // so custom detent identifiers are applied through KVC to preserve leaf undim behavior.
+        using NSString largestUndimmedDetentIdentifier = new(detentIdentifier);
+        using NSString largestUndimmedDetentIdentifierKey = new("largestUndimmedDetentIdentifier");
+        sheetPresentationController.SetValueForKey(largestUndimmedDetentIdentifier, largestUndimmedDetentIdentifierKey);
     }
 
     /// <summary>
@@ -549,6 +580,64 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
 
         dimmingView.BringSubviewToFront(_iosBlurBackgroundView);
         _iosBlurBackgroundView.Frame = dimmingView.Bounds;
+    }
+
+    private void EnsureIosLeafTouchBlockerView()
+    {
+        if (PresentationController?.ContainerView is not UIView containerView
+            || PresentationController.PresentedView is not UIView presentedView)
+        {
+            return;
+        }
+
+        if (_iosLeafTouchBlockerView is null)
+        {
+            // Invisible hit-test layer between presented sheet and underlying page.
+            _iosLeafTouchBlockerView = new UIView
+            {
+                BackgroundColor = UIColor.Clear,
+                UserInteractionEnabled = true,
+                AutoresizingMask = UIViewAutoresizing.FlexibleWidth | UIViewAutoresizing.FlexibleHeight,
+            };
+        }
+
+        if (!ReferenceEquals(_iosLeafTouchBlockerView.Superview, containerView))
+        {
+            _iosLeafTouchBlockerView.RemoveFromSuperview();
+            containerView.InsertSubviewBelow(_iosLeafTouchBlockerView, presentedView);
+        }
+        else
+        {
+            containerView.InsertSubviewBelow(_iosLeafTouchBlockerView, presentedView);
+        }
+
+        _iosLeafTouchBlockerView.Frame = containerView.Bounds;
+    }
+
+    private void RemoveIosLeafTouchBlockerView()
+    {
+        if (_iosLeafTouchBlockerView is null)
+        {
+            return;
+        }
+
+        if (ReferenceEquals(_dimViewGestureRecognizer.View, _iosLeafTouchBlockerView))
+        {
+            _iosLeafTouchBlockerView.RemoveGestureRecognizer(_dimViewGestureRecognizer);
+        }
+
+        _iosLeafTouchBlockerView.RemoveFromSuperview();
+    }
+
+    private void AttachDimTapGestureRecognizer(UIView targetView)
+    {
+        if (ReferenceEquals(_dimViewGestureRecognizer.View, targetView))
+        {
+            return;
+        }
+
+        _dimViewGestureRecognizer.View?.RemoveGestureRecognizer(_dimViewGestureRecognizer);
+        targetView.AddGestureRecognizer(_dimViewGestureRecognizer);
     }
 
     private void AnimateIosBlurEffect(bool isVisible, IUIViewControllerTransitionCoordinator? coordinator = null, bool animated = true)
@@ -630,9 +719,7 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
             return;
         }
 
-        bool isLeafSheet = OperatingSystem.IsIOS()
-            && !OperatingSystem.IsMacCatalyst()
-            && PresentingViewController is BottomSheet;
+        bool isLeafSheet = IsLeafSheet();
 
         if (_isModal == false
             || isLeafSheet)
@@ -658,6 +745,13 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
         }
 
         SheetPresentationController.LargestUndimmedDetentIdentifier = UISheetPresentationControllerDetentIdentifier.Unknown;
+    }
+
+    private bool IsLeafSheet()
+    {
+        return OperatingSystem.IsIOS()
+            && !OperatingSystem.IsMacCatalyst()
+            && PresentingViewController is BottomSheet;
     }
 
     private void StopAndDisposeIosBlurAnimator(bool finishCurrent)
