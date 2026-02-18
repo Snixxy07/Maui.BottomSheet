@@ -11,6 +11,7 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
     private const string AccessibilityIdentifier = "Plugin.BottomSheet.iOSMacCatalyst.BottomSheet";
     private const string PeekDetentId = "Plugin.Maui.BottomSheet.PeekDetentId";
     private const double IosBlurAnimationDuration = 0.35d;
+    private const float IosBlurVisibleAlpha = 0.55f;
 
     private readonly WeakEventManager _eventManager = new();
     private readonly UISheetPresentationControllerDetent _contentDetent;
@@ -508,7 +509,7 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
             {
                 dimmingView.BackgroundColor = UIColor.Clear;
                 EnsureIosBlurBackgroundView(dimmingView);
-                AnimateIosBlurAlpha(IsModal ? 1f : 0f);
+                AnimateIosBlurAlpha(IsModal ? (nfloat)IosBlurVisibleAlpha : 0f);
             }
 
             return;
@@ -525,7 +526,7 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
     {
         if (_iosBlurBackgroundView is null)
         {
-            UIBlurEffect blurEffect = UIBlurEffect.FromStyle(UIBlurEffectStyle.SystemThickMaterialDark);
+            UIBlurEffect blurEffect = UIBlurEffect.FromStyle(UIBlurEffectStyle.SystemThinMaterialDark);
             _iosBlurBackgroundView = new UIVisualEffectView(blurEffect)
             {
                 UserInteractionEnabled = false,
