@@ -185,7 +185,7 @@ or
 | `Padding`               | `double`                 | Internal padding                                                                                                                                                                           |
 | `BackgroundColor`       | `Color`                  | Background color                                                                                                                                                                           |
 | `CornerRadius`          | `float`                  | Top corner radius                                                                                                                                                                          |
-| `WindowBackgroundColor` | `Color`                  | Window background (modal only). On iOS, the system dim/blur is used and this property is ignored.                                                                                        |
+| `WindowBackgroundColor` | `Color`                  | Window background (modal only). On iOS, a blur overlay is used and this property is ignored.                                                                                              |
 | `SizeMode`              | `BottomSheetSizeMode`    | Represents a size mode for the bottom sheet where the height is adjusted dynamically to fit the content displayed within it or a fixed value based on the number of states it can display. |
 
 
@@ -262,7 +262,7 @@ or
 ### 📋 Complete XAML Example
 
 > [!NOTE]
-> On iOS, `WindowBackgroundColor` is ignored and the system dim/blur background is used.
+> On iOS, `WindowBackgroundColor` is ignored and a blur background overlay is used.
 
 ```xaml
 <bottomsheet:BottomSheet

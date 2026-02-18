@@ -10,6 +10,7 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
 {
     private const string AccessibilityIdentifier = "Plugin.BottomSheet.iOSMacCatalyst.BottomSheet";
     private const string PeekDetentId = "Plugin.Maui.BottomSheet.PeekDetentId";
+    private const double IosBlurAnimationDuration = 0.35d;
 
     private readonly WeakEventManager _eventManager = new();
     private readonly UISheetPresentationControllerDetent _contentDetent;
@@ -26,6 +27,7 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
     private UIColor? _backgroundColor;
 
     private BottomSheetContainerViewController? _containerViewController;
+    private UIVisualEffectView? _iosBlurBackgroundView;
 
     private BottomSheetSizeMode _sizeMode;
 
@@ -342,6 +344,13 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
     {
         base.ViewWillDisappear(animated);
 
+        if (OperatingSystem.IsIOS()
+            && !OperatingSystem.IsMacCatalyst())
+        {
+            AnimateIosBlurAlpha(0f);
+            return;
+        }
+
         WindowBackgroundColor = UIColor.Clear;
         ApplyWindowBackgroundColor();
     }
@@ -374,6 +383,11 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
             this,
             EventArgs.Empty,
             nameof(FrameChanged));
+
+        if (_iosBlurBackgroundView?.Superview is UIView dimmingView)
+        {
+            _iosBlurBackgroundView.Frame = dimmingView.Bounds;
+        }
     }
 
     /// <summary>
@@ -453,6 +467,8 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
         _bottomSheetDelegate.Dispose();
 
         _dimViewGestureRecognizer.Dispose();
+        _iosBlurBackgroundView?.RemoveFromSuperview();
+        _iosBlurBackgroundView?.Dispose();
 
         if (IsOpen)
         {
@@ -484,10 +500,17 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
     /// </summary>
     private void ApplyWindowBackgroundColor()
     {
-        // On iOS, keep the system dim/blur provided by UISheetPresentationController.
+        // On iOS, use a custom blur overlay instead of the default dimming color.
         if (OperatingSystem.IsIOS()
             && !OperatingSystem.IsMacCatalyst())
         {
+            if (PresentationController?.ContainerView?.Subviews.FirstOrDefault() is UIView dimmingView)
+            {
+                dimmingView.BackgroundColor = UIColor.Clear;
+                EnsureIosBlurBackgroundView(dimmingView);
+                AnimateIosBlurAlpha(IsModal ? 1f : 0f);
+            }
+
             return;
         }
 
@@ -496,6 +519,42 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
         {
             UIView.Animate(0.25, () => PresentationController.ContainerView.Subviews[0].BackgroundColor = IsModal ? WindowBackgroundColor : UIColor.Clear);
         }
+    }
+
+    private void EnsureIosBlurBackgroundView(UIView dimmingView)
+    {
+        if (_iosBlurBackgroundView is null)
+        {
+            UIBlurEffect blurEffect = UIBlurEffect.FromStyle(UIBlurEffectStyle.SystemThickMaterialDark);
+            _iosBlurBackgroundView = new UIVisualEffectView(blurEffect)
+            {
+                UserInteractionEnabled = false,
+                Alpha = 0f,
+            };
+        }
+
+        if (!ReferenceEquals(_iosBlurBackgroundView.Superview, dimmingView))
+        {
+            _iosBlurBackgroundView.RemoveFromSuperview();
+            dimmingView.InsertSubview(_iosBlurBackgroundView, 0);
+        }
+
+        _iosBlurBackgroundView.Frame = dimmingView.Bounds;
+    }
+
+    private void AnimateIosBlurAlpha(nfloat alpha)
+    {
+        if (_iosBlurBackgroundView is null)
+        {
+            return;
+        }
+
+        UIView.Animate(
+            IosBlurAnimationDuration,
+            0d,
+            UIViewAnimationOptions.BeginFromCurrentState | UIViewAnimationOptions.AllowUserInteraction | UIViewAnimationOptions.CurveEaseInOut,
+            () => _iosBlurBackgroundView.Alpha = alpha,
+            () => { });
     }
 
     /// <summary>
