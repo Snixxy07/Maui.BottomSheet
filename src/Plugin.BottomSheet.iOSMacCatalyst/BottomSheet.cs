@@ -32,6 +32,15 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
 
     private BottomSheetSizeMode _sizeMode;
 
+    private static void SetLargestUndimmedDetentIdentifier(
+        UISheetPresentationController sheetPresentationController,
+        string detentIdentifier)
+    {
+        using NSString largestUndimmedDetentIdentifier = new(detentIdentifier);
+        using NSString largestUndimmedDetentIdentifierKey = new("largestUndimmedDetentIdentifier");
+        sheetPresentationController.SetValueForKey(largestUndimmedDetentIdentifier, largestUndimmedDetentIdentifierKey);
+    }
+
     /// <summary>
     /// Initializes a new instance of the <see cref="BottomSheet"/> class.
     /// Represents a bottom sheet component that provides a configurable and interactive user interface element.
@@ -182,12 +191,7 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
             _isModal = value;
 
             _dimViewGestureRecognizer.Enabled = _isModal;
-
-            if (SheetPresentationController is not null)
-            {
-                // Actually bug in UIKit. Custom detent can't be undimmed. Submit a bug?.
-                SheetPresentationController.LargestUndimmedDetentIdentifier = _isModal ? UISheetPresentationControllerDetentIdentifier.Unknown : States.Last().ToPlatformState();
-            }
+            UpdateLargestUndimmedDetentIdentifier();
 
             ApplyWindowBackgroundColor();
         }
@@ -238,6 +242,8 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
 
                 SheetPresentationController.Detents = detents;
             });
+
+            UpdateLargestUndimmedDetentIdentifier();
         }
     }
 
@@ -322,10 +328,11 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
     {
         base.ViewWillAppear(animated);
 
+        UpdateLargestUndimmedDetentIdentifier();
         ApplyBackgroundColor();
         ApplyWindowBackgroundColor();
 
-        if (PresentationController?.ContainerView.Subviews.FirstOrDefault() is UIView view
+        if (GetBackdropView() is UIView view
             && view.GestureRecognizers is UIGestureRecognizer[] gestureRecognizers)
         {
             if (gestureRecognizers.FirstOrDefault() is UITapGestureRecognizer defaultGestureRecognizer)
@@ -348,7 +355,7 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
         if (OperatingSystem.IsIOS()
             && !OperatingSystem.IsMacCatalyst())
         {
-            AnimateIosBlurEffect(false);
+            AnimateIosBlurEffect(false, this.GetTransitionCoordinator(), animated);
             return;
         }
 
@@ -468,8 +475,7 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
         _bottomSheetDelegate.Dispose();
 
         _dimViewGestureRecognizer.Dispose();
-        _iosBlurAnimator?.StopAnimation(true);
-        _iosBlurAnimator?.Dispose();
+        StopAndDisposeIosBlurAnimator(finishCurrent: true);
         _iosBlurBackgroundView?.RemoveFromSuperview();
         _iosBlurBackgroundView?.Dispose();
 
@@ -507,11 +513,11 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
         if (OperatingSystem.IsIOS()
             && !OperatingSystem.IsMacCatalyst())
         {
-            if (PresentationController?.ContainerView?.Subviews.FirstOrDefault() is UIView dimmingView)
+            if (GetBackdropView() is UIView dimmingView)
             {
                 dimmingView.BackgroundColor = UIColor.Clear;
                 EnsureIosBlurBackgroundView(dimmingView);
-                AnimateIosBlurEffect(IsModal);
+                AnimateIosBlurEffect(IsModal, null, animated: true);
             }
 
             return;
@@ -545,25 +551,141 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
         _iosBlurBackgroundView.Frame = dimmingView.Bounds;
     }
 
-    private void AnimateIosBlurEffect(bool isVisible)
+    private void AnimateIosBlurEffect(bool isVisible, IUIViewControllerTransitionCoordinator? coordinator = null, bool animated = true)
     {
         if (_iosBlurBackgroundView is null)
         {
             return;
         }
 
-        _iosBlurAnimator?.StopAnimation(true);
-        _iosBlurAnimator?.Dispose();
+        StopAndDisposeIosBlurAnimator(finishCurrent: true);
 
         UIVisualEffect? targetEffect = isVisible
             ? UIBlurEffect.FromStyle(UIBlurEffectStyle.SystemUltraThinMaterial)
             : null;
+
+        if (animated == false)
+        {
+            _iosBlurBackgroundView.Effect = targetEffect;
+            return;
+        }
+
+        if (coordinator is not null)
+        {
+            UIVisualEffect? cancelledEffect = isVisible
+                ? null
+                : UIBlurEffect.FromStyle(UIBlurEffectStyle.SystemUltraThinMaterial);
+
+            bool queued = coordinator.AnimateAlongsideTransition(
+                _ =>
+                {
+                    if (_iosBlurBackgroundView is not null)
+                    {
+                        _iosBlurBackgroundView.Effect = targetEffect;
+                    }
+                },
+                context =>
+                {
+                    if (_iosBlurBackgroundView is null)
+                    {
+                        return;
+                    }
+
+                    _iosBlurBackgroundView.Effect = context.IsCancelled
+                        ? cancelledEffect
+                        : targetEffect;
+                });
+
+            if (queued)
+            {
+                return;
+            }
+        }
 
         _iosBlurAnimator = new UIViewPropertyAnimator(
             IosBlurAnimationDuration,
             UIViewAnimationCurve.EaseInOut,
             () => _iosBlurBackgroundView.Effect = targetEffect);
         _iosBlurAnimator.StartAnimation();
+    }
+
+    private UIView? GetBackdropView()
+    {
+        UIView[]? subviews = PresentationController?.ContainerView?.Subviews;
+        if (subviews is null
+            || subviews.Length == 0)
+        {
+            return null;
+        }
+
+        return subviews.FirstOrDefault(static view =>
+                   view.GestureRecognizers?.Any(static gesture => gesture is UITapGestureRecognizer) == true)
+            ?? subviews[0];
+    }
+
+    private void UpdateLargestUndimmedDetentIdentifier()
+    {
+        if (SheetPresentationController is null)
+        {
+            return;
+        }
+
+        bool isLeafSheet = OperatingSystem.IsIOS()
+            && !OperatingSystem.IsMacCatalyst()
+            && PresentingViewController is BottomSheet;
+
+        if (_isModal == false
+            || isLeafSheet)
+        {
+            UISheetPresentationControllerDetent[] detents = SheetPresentationController.Detents;
+
+            if (detents.Length == 0)
+            {
+                SheetPresentationController.LargestUndimmedDetentIdentifier = UISheetPresentationControllerDetentIdentifier.Unknown;
+                return;
+            }
+
+            if ((OperatingSystem.IsIOSVersionAtLeast(16) || OperatingSystem.IsMacCatalystVersionAtLeast(16))
+                && detents[^1].Identifier is string largestDetentIdentifierString
+                && string.IsNullOrWhiteSpace(largestDetentIdentifierString) == false)
+            {
+                SetLargestUndimmedDetentIdentifier(SheetPresentationController, largestDetentIdentifierString);
+                return;
+            }
+
+            SheetPresentationController.LargestUndimmedDetentIdentifier = detents.LargestDetentIdentifier();
+            return;
+        }
+
+        SheetPresentationController.LargestUndimmedDetentIdentifier = UISheetPresentationControllerDetentIdentifier.Unknown;
+    }
+
+    private void StopAndDisposeIosBlurAnimator(bool finishCurrent)
+    {
+        if (_iosBlurAnimator is null)
+        {
+            return;
+        }
+
+        if (finishCurrent)
+        {
+            if (_iosBlurAnimator.State == UIViewAnimatingState.Active)
+            {
+                _iosBlurAnimator.StopAnimation(false);
+                _iosBlurAnimator.FinishAnimation(UIViewAnimatingPosition.Current);
+            }
+            else if (_iosBlurAnimator.State == UIViewAnimatingState.Stopped)
+            {
+                _iosBlurAnimator.FinishAnimation(UIViewAnimatingPosition.Current);
+            }
+        }
+        else
+        {
+            _iosBlurAnimator.StopAnimation(true);
+        }
+
+        _iosBlurAnimator.Dispose();
+        _iosBlurAnimator = null;
     }
 
     /// <summary>

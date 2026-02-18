@@ -1,5 +1,6 @@
 namespace Plugin.BottomSheet.iOSMacCatalyst;
 
+using Foundation;
 using UIKit;
 
 /// <summary>
@@ -17,21 +18,38 @@ internal static class UiSheetPresentationControllerDetentsExtensions
         this IEnumerable<UISheetPresentationControllerDetent> detents)
     {
         UISheetPresentationControllerDetent largestDetent = detents.Last();
-        UISheetPresentationControllerDetentIdentifier largestDetentIdentifier = UISheetPresentationControllerDetentIdentifier.Unknown;
+
+        // For custom detents (FitToContent), use the actual detent identifier.
+        if ((OperatingSystem.IsIOSVersionAtLeast(16) || OperatingSystem.IsMacCatalystVersionAtLeast(16))
+            && largestDetent.Identifier is string largestDetentIdentifierString
+            && string.IsNullOrWhiteSpace(largestDetentIdentifierString) == false)
+        {
+            try
+            {
+                using NSString largestDetentIdentifierNsString = new(largestDetentIdentifierString);
+                return UISheetPresentationControllerDetentIdentifierExtensions.GetValue(largestDetentIdentifierNsString);
+            }
+            catch (ArgumentException)
+            {
+                // Keep fallback behavior for unexpected identifier values.
+            }
+        }
+
+        UISheetPresentationControllerDetentIdentifier largestDetentId = UISheetPresentationControllerDetentIdentifier.Unknown;
 
         using UISheetPresentationControllerDetent mediumDetent = UISheetPresentationControllerDetent.CreateMediumDetent();
         using UISheetPresentationControllerDetent largeDetent = UISheetPresentationControllerDetent.CreateLargeDetent();
 
         if (largestDetent.Equals(mediumDetent))
         {
-            largestDetentIdentifier = UISheetPresentationControllerDetentIdentifier.Medium;
+            largestDetentId = UISheetPresentationControllerDetentIdentifier.Medium;
         }
         else if (largestDetent.Equals(largeDetent))
         {
-            largestDetentIdentifier = UISheetPresentationControllerDetentIdentifier.Large;
+            largestDetentId = UISheetPresentationControllerDetentIdentifier.Large;
         }
 
-        return largestDetentIdentifier;
+        return largestDetentId;
     }
 
     /// <summary>
