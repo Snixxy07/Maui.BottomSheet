@@ -324,12 +324,10 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
         ApplyBackgroundColor();
         ApplyWindowBackgroundColor();
 
-        bool isLeafSheet = IsLeafSheet();
-        if (isLeafSheet
-            && IsModal)
+        if (UsesUndimmedBackdropOnIos())
         {
-            // Leaf sheets use undimmed detent on iOS, so we add our own transparent touch blocker
-            // to prevent click-through while keeping the custom blur-only visual.
+            // Non-fullscreen iOS sheets use an undimmed detent so the native dark scrim does not
+            // stack under our custom blur overlay. Add a transparent touch blocker to keep modal behavior.
             EnsureIosLeafTouchBlockerView();
         }
         else
@@ -719,10 +717,8 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
             return;
         }
 
-        bool isLeafSheet = IsLeafSheet();
-
         if (_isModal == false
-            || isLeafSheet)
+            || UsesUndimmedBackdropOnIos())
         {
             UISheetPresentationControllerDetent[] detents = SheetPresentationController.Detents;
 
@@ -747,11 +743,19 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
         SheetPresentationController.LargestUndimmedDetentIdentifier = UISheetPresentationControllerDetentIdentifier.Unknown;
     }
 
-    private bool IsLeafSheet()
+    private bool UsesUndimmedBackdropOnIos()
     {
-        return OperatingSystem.IsIOS()
-            && !OperatingSystem.IsMacCatalyst()
-            && PresentingViewController is BottomSheet;
+        if (OperatingSystem.IsIOS() == false
+            || OperatingSystem.IsMacCatalyst()
+            || _isModal == false
+            || SheetPresentationController is null)
+        {
+            return false;
+        }
+
+        UISheetPresentationControllerDetent[] detents = SheetPresentationController.Detents;
+        return detents.Length > 0
+            && detents.LargestDetentIdentifier() != UISheetPresentationControllerDetentIdentifier.Large;
     }
 
     private void StopAndDisposeIosBlurAnimator(bool finishCurrent)
