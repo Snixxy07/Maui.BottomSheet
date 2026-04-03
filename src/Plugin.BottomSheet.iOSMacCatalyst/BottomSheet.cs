@@ -648,7 +648,7 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
         StopAndDisposeIosBlurAnimator(finishCurrent: true);
 
         UIVisualEffect? targetEffect = isVisible
-            ? UIBlurEffect.FromStyle(UIBlurEffectStyle.SystemUltraThinMaterial)
+            ? UIBlurEffect.FromStyle(UIBlurEffectStyle.SystemUltraThinMaterialDark)
             : null;
 
         if (animated == false)
@@ -661,7 +661,7 @@ public sealed class BottomSheet : UINavigationController, IEnumerable<UIView>
         {
             UIVisualEffect? cancelledEffect = isVisible
                 ? null
-                : UIBlurEffect.FromStyle(UIBlurEffectStyle.SystemUltraThinMaterial);
+                : UIBlurEffect.FromStyle(UIBlurEffectStyle.SystemUltraThinMaterialDark);
 
             bool queued = coordinator.AnimateAlongsideTransition(
                 _ =>
