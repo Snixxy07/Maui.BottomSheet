@@ -10,8 +10,7 @@
 			$(NETVersion)-android;
 			$(NETVersion)-maccatalyst
 		</TargetFrameworks>
-		<!-- Windows development disabled to avoid build errors when not targeting Windows -->
-		<!-- <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);$(NETVersion)-windows$(WindowsVersion);$(LegacyNETVersion)-windows$(WindowsVersion)</TargetFrameworks> -->
+		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);$(NETVersion)-windows$(WindowsVersion);$(LegacyNETVersion)-windows$(WindowsVersion)</TargetFrameworks>
 		
         <UseMaui>true</UseMaui>
         <SingleProject>true</SingleProject>
