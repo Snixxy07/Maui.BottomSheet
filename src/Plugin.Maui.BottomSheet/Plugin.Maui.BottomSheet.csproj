@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
 		<TargetFrameworks>
 			$(LegacyNETVersion);
@@ -10,7 +10,8 @@
 			$(NETVersion)-android;
 			$(NETVersion)-maccatalyst
 		</TargetFrameworks>
-		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);$(NETVersion)-windows$(WindowsVersion);$(LegacyNETVersion)-windows$(WindowsVersion)</TargetFrameworks>
+		<!-- We only target Android and iOS, so we don't need Windows target compilation which fails because Plugin.BottomSheet.Windows is not in our slnx -->
+		<!-- <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);$(NETVersion)-windows$(WindowsVersion);$(LegacyNETVersion)-windows$(WindowsVersion)</TargetFrameworks> -->
 		
         <UseMaui>true</UseMaui>
         <SingleProject>true</SingleProject>
